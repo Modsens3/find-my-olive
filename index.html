@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Εφαρμογή χαρτογράφησης ελαιοδέντρων με GPS">
+    <meta name="theme-color" content="#2d5016">
+    <title>🫒 Olive Mapper - Χαρτογράφηση Ελαιοδέντρων</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Apple Touch Icon -->
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='75' font-size='75'>🫒</text></svg>">
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🫒 Olive Mapper</h1>
+                <button id="darkModeToggle" class="icon-btn" title="Εναλλαγή σκοτεινής λειτουργίας">
+                    <span class="dark-mode-icon">🌙</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Capture Section -->
+            <section class="capture-section">
+                <button id="captureBtn" class="capture-btn">
+                    <span class="btn-icon">📍</span>
+                    <span class="btn-text">Καταγραφή Δέντρου</span>
+                </button>
+                <div id="gpsStatus" class="gps-status"></div>
+            </section>
+
+            <!-- Statistics Section -->
+            <section class="stats-section">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalTrees">0</div>
+                    <div class="stat-label">Σύνολο Δέντρων</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="areaSize">0</div>
+                    <div class="stat-label">Έκταση (m²)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="density">0</div>
+                    <div class="stat-label">Πυκνότητα/εκτ.</div>
+                </div>
+            </section>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="list">
+                    <span>📋 Λίστα</span>
+                </button>
+                <button class="tab-btn" data-tab="map">
+                    <span>🗺️ Χάρτης</span>
+                </button>
+                <button class="tab-btn" data-tab="export">
+                    <span>💾 Εξαγωγή</span>
+                </button>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="tab-content">
+                <!-- List Tab -->
+                <div id="listTab" class="tab-pane active">
+                    <div class="list-header">
+                        <h2>Καταγεγραμμένα Δέντρα</h2>
+                        <button id="clearAllBtn" class="btn-secondary">
+                            🗑️ Διαγραφή Όλων
+                        </button>
+                    </div>
+                    <div id="treeList" class="tree-list">
+                        <div class="empty-state">
+                            <div class="empty-icon">🫒</div>
+                            <p>Δεν υπάρχουν καταγεγραμμένα δέντρα</p>
+                            <p class="empty-subtitle">Πατήστε "Καταγραφή Δέντρου" για να ξεκινήσετε</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Map Tab -->
+                <div id="mapTab" class="tab-pane">
+                    <div id="map"></div>
+                    <button id="centerMapBtn" class="floating-btn" title="Κεντράρισμα στην τοποθεσία μου">
+                        📍
+                    </button>
+                </div>
+
+                <!-- Export Tab -->
+                <div id="exportTab" class="tab-pane">
+                    <div class="export-section">
+                        <h2>Εξαγωγή Δεδομένων</h2>
+                        <div class="export-buttons">
+                            <button id="exportCSV" class="btn-export">
+                                <span class="btn-icon">📊</span>
+                                <span>Εξαγωγή CSV</span>
+                            </button>
+                            <button id="exportGeoJSON" class="btn-export">
+                                <span class="btn-icon">🗺️</span>
+                                <span>Εξαγωγή GeoJSON</span>
+                            </button>
+                        </div>
+
+                        <h2 style="margin-top: 2rem;">Εισαγωγή Δεδομένων</h2>
+                        <div class="import-section">
+                            <input type="file" id="importFile" accept=".csv,.json,.geojson" style="display: none;">
+                            <button id="importBtn" class="btn-import">
+                                <span class="btn-icon">📥</span>
+                                <span>Εισαγωγή Αρχείου</span>
+                            </button>
+                            <p class="import-info">Υποστηρίζονται αρχεία CSV και GeoJSON</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal for Editing -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Επεξεργασία Δέντρου</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="editNotes">Σημειώσεις:</label>
+                    <textarea id="editNotes" rows="3" placeholder="π.χ. Καλή κατάσταση, ποικιλία Κορωνέικη..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="editVariety">Ποικιλία:</label>
+                    <input type="text" id="editVariety" placeholder="π.χ. Κορωνέικη, Καλαμών...">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="saveEdit" class="btn-primary">Αποθήκευση</button>
+                <button id="cancelEdit" class="btn-secondary">Ακύρωση</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Installation Prompt -->
+    <div id="installPrompt" class="install-prompt" style="display: none;">
+        <div class="install-content">
+            <span class="install-icon">🫒</span>
+            <div class="install-text">
+                <strong>Εγκαταστήστε το Olive Mapper</strong>
+                <p>Προσθέστε στην αρχική οθόνη για γρήγορη πρόσβαση</p>
+            </div>
+            <button id="installBtn" class="btn-install">Εγκατάσταση</button>
+            <button id="dismissInstall" class="btn-dismiss">✕</button>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast" class="toast"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    
+    <!-- App JS -->
+    <script src="app.js"></script>
+</body>
+</html>
+
