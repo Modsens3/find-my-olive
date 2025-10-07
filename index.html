@@ -18,6 +18,12 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
     
+    <!-- ArUco.js Library -->
+    <script src="https://cdn.jsdelivr.net/npm/js-aruco@1.0.0/src/svd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-aruco@1.0.0/src/posit1.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-aruco@1.0.0/src/cv.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-aruco@1.0.0/src/aruco.js"></script>
+    
     <!-- Custom Styles -->
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -35,13 +41,73 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Capture Section -->
-            <section class="capture-section">
+            <!-- Mode Toggle -->
+            <section class="mode-toggle-section">
+                <div class="mode-toggle">
+                    <button class="mode-btn active" data-mode="gps">
+                        <span class="mode-icon">📍</span>
+                        <span class="mode-label">GPS Mode</span>
+                    </button>
+                    <button class="mode-btn" data-mode="camera">
+                        <span class="mode-icon">📷</span>
+                        <span class="mode-label">Camera Mode</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- GPS Capture Section -->
+            <section class="capture-section" id="gpsSection">
                 <button id="captureBtn" class="capture-btn">
                     <span class="btn-icon">📍</span>
                     <span class="btn-text">Καταγραφή Δέντρου</span>
                 </button>
                 <div id="gpsStatus" class="gps-status"></div>
+            </section>
+
+            <!-- Camera Capture Section -->
+            <section class="camera-section" id="cameraSection" style="display: none;">
+                <div class="camera-container">
+                    <video id="cameraVideo" autoplay playsinline></video>
+                    <canvas id="cameraCanvas"></canvas>
+                    <div id="markerOverlay"></div>
+                </div>
+                <div class="camera-controls">
+                    <button id="startCameraBtn" class="btn-primary">
+                        <span>📷 Ενεργοποίηση Κάμερας</span>
+                    </button>
+                    <button id="captureDistanceBtn" class="capture-btn" style="display: none;">
+                        <span class="btn-icon">📏</span>
+                        <span class="btn-text">Καταγραφή Απόστασης</span>
+                    </button>
+                </div>
+                <div class="camera-info">
+                    <div class="info-item">
+                        <strong>Μέγεθος Marker:</strong>
+                        <input type="number" id="markerSize" value="20" min="5" max="100" step="1">
+                        <span>cm</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>Κατάσταση:</strong>
+                        <span id="cameraStatus">Απενεργοποιημένη</span>
+                    </div>
+                    <div class="info-item" id="distanceDisplay" style="display: none;">
+                        <strong>Απόσταση:</strong>
+                        <span id="measuredDistance" class="distance-value">0.00 m</span>
+                    </div>
+                </div>
+                <div class="camera-instructions">
+                    <h3>📋 Οδηγίες Χρήσης</h3>
+                    <ol>
+                        <li>Τυπώστε το ArUco marker (ID: 0-9)</li>
+                        <li>Τοποθετήστε το marker στο δέντρο</li>
+                        <li>Ενεργοποιήστε την κάμερα</li>
+                        <li>Κατευθύνετε την κάμερα προς το marker</li>
+                        <li>Πατήστε "Καταγραφή Απόστασης" όταν το marker εντοπιστεί</li>
+                    </ol>
+                    <button id="downloadMarkerBtn" class="btn-secondary">
+                        🖨️ Λήψη Marker
+                    </button>
+                </div>
             </section>
 
             <!-- Statistics Section -->

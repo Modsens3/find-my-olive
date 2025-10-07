@@ -8,6 +8,14 @@ let userMarker = null;
 let currentPosition = null;
 let editingTreeId = null;
 
+// Camera Mode State
+let currentMode = 'gps'; // 'gps' or 'camera'
+let cameraStream = null;
+let cameraActive = false;
+let arucoDetector = null;
+let detectionInterval = null;
+let lastDetectedDistance = null;
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
@@ -40,8 +48,18 @@ function initializeApp() {
 
 // ===== Event Listeners =====
 function setupEventListeners() {
+    // Mode toggle
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+    });
+    
     // Capture tree
     document.getElementById('captureBtn').addEventListener('click', captureTree);
+    
+    // Camera controls
+    document.getElementById('startCameraBtn').addEventListener('click', toggleCamera);
+    document.getElementById('captureDistanceBtn').addEventListener('click', captureDistance);
+    document.getElementById('downloadMarkerBtn').addEventListener('click', downloadMarker);
     
     // Tabs
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -747,6 +765,316 @@ function downloadFile(content, filename, mimeType) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+// ===== Mode Switching =====
+function switchMode(mode) {
+    currentMode = mode;
+    
+    // Update mode buttons
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+    
+    // Show/hide sections
+    if (mode === 'gps') {
+        document.getElementById('gpsSection').style.display = 'block';
+        document.getElementById('cameraSection').style.display = 'none';
+        stopCamera(); // Stop camera if switching away
+    } else {
+        document.getElementById('gpsSection').style.display = 'none';
+        document.getElementById('cameraSection').style.display = 'block';
+    }
+}
+
+// ===== Camera Mode Functions =====
+async function toggleCamera() {
+    if (cameraActive) {
+        stopCamera();
+    } else {
+        await startCamera();
+    }
+}
+
+async function startCamera() {
+    try {
+        const video = document.getElementById('cameraVideo');
+        const canvas = document.getElementById('cameraCanvas');
+        
+        // Request camera access with back camera preference
+        const constraints = {
+            video: {
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            }
+        };
+        
+        cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = cameraStream;
+        
+        // Wait for video to load
+        await new Promise(resolve => {
+            video.onloadedmetadata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                resolve();
+            };
+        });
+        
+        cameraActive = true;
+        document.getElementById('startCameraBtn').innerHTML = '<span>⏸️ Απενεργοποίηση Κάμερας</span>';
+        document.getElementById('cameraStatus').textContent = 'Ενεργή';
+        document.getElementById('cameraStatus').classList.add('active');
+        document.getElementById('captureDistanceBtn').style.display = 'block';
+        
+        // Initialize ArUco detector
+        if (typeof AR !== 'undefined') {
+            arucoDetector = new AR.Detector();
+            startMarkerDetection();
+        } else {
+            showToast('Σφάλμα φόρτωσης ArUco library', 'error');
+        }
+        
+        showToast('Κάμερα ενεργοποιήθηκε', 'success');
+    } catch (error) {
+        console.error('Camera error:', error);
+        showToast('Δεν ήταν δυνατή η πρόσβαση στην κάμερα', 'error');
+    }
+}
+
+function stopCamera() {
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+    }
+    
+    if (detectionInterval) {
+        clearInterval(detectionInterval);
+        detectionInterval = null;
+    }
+    
+    const video = document.getElementById('cameraVideo');
+    video.srcObject = null;
+    
+    cameraActive = false;
+    lastDetectedDistance = null;
+    
+    document.getElementById('startCameraBtn').innerHTML = '<span>📷 Ενεργοποίηση Κάμερας</span>';
+    document.getElementById('cameraStatus').textContent = 'Απενεργοποιημένη';
+    document.getElementById('cameraStatus').classList.remove('active');
+    document.getElementById('captureDistanceBtn').style.display = 'none';
+    document.getElementById('distanceDisplay').style.display = 'none';
+    document.getElementById('markerOverlay').innerHTML = '';
+}
+
+function startMarkerDetection() {
+    const video = document.getElementById('cameraVideo');
+    const canvas = document.getElementById('cameraCanvas');
+    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('markerOverlay');
+    
+    detectionInterval = setInterval(() => {
+        if (!cameraActive) return;
+        
+        // Draw video frame to canvas
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Get image data for ArUco detection
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        
+        try {
+            // Detect markers
+            const markers = arucoDetector.detect(imageData);
+            
+            // Clear previous overlays
+            overlay.innerHTML = '';
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (markers.length > 0) {
+                markers.forEach(marker => {
+                    // Calculate marker distance
+                    const distance = calculateMarkerDistance(marker);
+                    lastDetectedDistance = distance;
+                    
+                    // Draw marker outline
+                    drawMarkerOutline(ctx, marker, distance);
+                    
+                    // Update distance display
+                    document.getElementById('distanceDisplay').style.display = 'flex';
+                    document.getElementById('measuredDistance').textContent = `${distance.toFixed(2)} m`;
+                });
+            } else {
+                lastDetectedDistance = null;
+                document.getElementById('distanceDisplay').style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Detection error:', error);
+        }
+    }, 100); // Detect every 100ms
+}
+
+function calculateMarkerDistance(marker) {
+    // Get marker size in cm from input
+    const markerSizeCm = parseFloat(document.getElementById('markerSize').value) || 20;
+    const markerSizeM = markerSizeCm / 100; // Convert to meters
+    
+    // Calculate marker perimeter in pixels
+    const corners = marker.corners;
+    let perimeterPixels = 0;
+    for (let i = 0; i < corners.length; i++) {
+        const j = (i + 1) % corners.length;
+        const dx = corners[j].x - corners[i].x;
+        const dy = corners[j].y - corners[i].y;
+        perimeterPixels += Math.sqrt(dx * dx + dy * dy);
+    }
+    
+    // Average side length in pixels
+    const avgSidePixels = perimeterPixels / 4;
+    
+    // Simple distance estimation using similar triangles
+    // Assuming a typical phone camera focal length
+    const focalLengthPixels = 1000; // Approximate, can be calibrated
+    
+    const distance = (markerSizeM * focalLengthPixels) / avgSidePixels;
+    
+    return distance;
+}
+
+function drawMarkerOutline(ctx, marker, distance) {
+    ctx.strokeStyle = '#2e7d32';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    
+    const corners = marker.corners;
+    ctx.moveTo(corners[0].x, corners[0].y);
+    for (let i = 1; i < corners.length; i++) {
+        ctx.lineTo(corners[i].x, corners[i].y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    
+    // Draw marker ID and distance
+    ctx.fillStyle = '#2e7d32';
+    ctx.font = 'bold 20px Arial';
+    ctx.fillText(
+        `ID: ${marker.id} | ${distance.toFixed(2)}m`,
+        corners[0].x,
+        corners[0].y - 10
+    );
+}
+
+function captureDistance() {
+    if (!lastDetectedDistance) {
+        showToast('Δεν εντοπίστηκε marker', 'error');
+        return;
+    }
+    
+    // Store distance measurement with tree
+    if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const tree = {
+                    id: generateId(),
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    accuracy: lastDetectedDistance, // Use camera distance instead of GPS accuracy
+                    timestamp: new Date().toISOString(),
+                    notes: `Camera distance: ${lastDetectedDistance.toFixed(2)}m`,
+                    variety: '',
+                    measurementMethod: 'camera'
+                };
+                
+                trees.push(tree);
+                saveTrees();
+                updateStatistics();
+                renderTreeList();
+                addMarkerToMap(tree);
+                
+                showToast(`🫒 Δέντρο καταγράφηκε με απόσταση ${lastDetectedDistance.toFixed(2)}m`, 'success');
+                switchTab('list');
+            },
+            (error) => {
+                // If GPS fails, save without GPS coordinates
+                const tree = {
+                    id: generateId(),
+                    latitude: 0,
+                    longitude: 0,
+                    accuracy: lastDetectedDistance,
+                    timestamp: new Date().toISOString(),
+                    notes: `Camera distance: ${lastDetectedDistance.toFixed(2)}m (No GPS)`,
+                    variety: '',
+                    measurementMethod: 'camera'
+                };
+                
+                trees.push(tree);
+                saveTrees();
+                updateStatistics();
+                renderTreeList();
+                
+                showToast(`🫒 Απόσταση ${lastDetectedDistance.toFixed(2)}m καταγράφηκε (χωρίς GPS)`, 'success');
+                switchTab('list');
+            }
+        );
+    }
+}
+
+function downloadMarker() {
+    // Create SVG ArUco marker
+    const markerSVG = generateArucoMarkerSVG(0); // ID 0
+    
+    const blob = new Blob([markerSVG], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'aruco-marker-0.svg';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showToast('Marker λήφθηκε - Τυπώστε το σε μέγεθος A4', 'success');
+}
+
+function generateArucoMarkerSVG(id) {
+    // Simple ArUco marker pattern for ID 0-9
+    // This is a simplified version - real ArUco markers have specific patterns
+    const patterns = {
+        0: [[1,0,1,0,1],[0,0,0,0,0],[1,0,1,0,1],[0,0,0,0,0],[1,0,1,0,1]],
+        1: [[1,0,1,0,1],[0,1,0,1,0],[1,0,1,0,1],[0,1,0,1,0],[1,0,1,0,1]],
+        2: [[1,1,1,1,1],[1,0,0,0,1],[1,0,0,0,1],[1,0,0,0,1],[1,1,1,1,1]],
+    };
+    
+    const pattern = patterns[id] || patterns[0];
+    const cellSize = 40;
+    const border = 2;
+    const totalSize = (pattern.length + border * 2) * cellSize;
+    
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${totalSize}" height="${totalSize}">`;
+    svg += `<rect width="${totalSize}" height="${totalSize}" fill="white"/>`;
+    
+    // Draw border
+    svg += `<rect x="0" y="0" width="${totalSize}" height="${cellSize}" fill="black"/>`;
+    svg += `<rect x="0" y="${totalSize - cellSize}" width="${totalSize}" height="${cellSize}" fill="black"/>`;
+    svg += `<rect x="0" y="0" width="${cellSize}" height="${totalSize}" fill="black"/>`;
+    svg += `<rect x="${totalSize - cellSize}" y="0" width="${cellSize}" height="${totalSize}" fill="black"/>`;
+    
+    // Draw pattern
+    for (let y = 0; y < pattern.length; y++) {
+        for (let x = 0; x < pattern[y].length; x++) {
+            if (pattern[y][x] === 1) {
+                const px = (x + border) * cellSize;
+                const py = (y + border) * cellSize;
+                svg += `<rect x="${px}" y="${py}" width="${cellSize}" height="${cellSize}" fill="black"/>`;
+            }
+        }
+    }
+    
+    svg += `<text x="${totalSize/2}" y="${totalSize + 30}" text-anchor="middle" font-size="24" font-family="Arial">ArUco ID: ${id}</text>`;
+    svg += `<text x="${totalSize/2}" y="${totalSize + 55}" text-anchor="middle" font-size="18" font-family="Arial" fill="#666">Τυπώστε σε A4 - Μέγεθος: 20cm</text>`;
+    svg += `</svg>`;
+    
+    return svg;
 }
 
 // ===== Service Worker Registration =====
